@@ -433,11 +433,54 @@ def distancia_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * 6371.0 * math.asin(math.sqrt(a))
 
 
-def _normalizar_telefone_br(parte: str) -> str:
-    """Devolve DDD + número, só dígitos, se for telefone brasileiro válido."""
-    digitos = re.sub(r"\D", "", parte).lstrip("0")
-    if len(digitos) in (12, 13) and digitos.startswith("55"):
+RE_CHAVE_TEL = re.compile(
+    r"(^|[:_])(phone|mobile|whatsapp|telephone|telefone|celular|fone|tel|zap)"
+    r"([:_]|\d|$)",
+    re.IGNORECASE,
+)
+RE_CHAVE_ZAP = re.compile(r"(whatsapp|zap)", re.IGNORECASE)
+RE_LINK_ZAP = re.compile(
+    r"(?:wa\.me/|whatsapp\.com/send\?[^\s]*?phone=|whatsapp\.com/[^\s]*?phone=)\+?(\d{10,15})",
+    re.IGNORECASE,
+)
+RE_FONE_TEXTO = re.compile(
+    r"(?<!\d)(?:\+?55[\s.-]*)?\(?0?\d{2}\)?[\s.-]*9?\d{4}[\s.-]?\d{4}(?!\d)"
+)
+
+
+def _normalizar_telefone_br(parte: str, ddd_padrao: str = "") -> str:
+    """Devolve DDD + número (só dígitos) se for telefone brasileiro válido.
+
+    Aceita +55, zero de operadora (011), números sem DDD (se ``ddd_padrao``
+    for informado) e celulares antigos sem o nono dígito. Rejeita 0800/0300.
+    """
+    digitos = re.sub(r"\D", "", parte)
+    if digitos.startswith(("0800", "0300", "0500", "0900")):
+        return ""
+
+    internacional = parte.strip().startswith("+")
+    if internacional:
+        # Código de país explícito: só o +55 é aceito e o DDD é obrigatório.
+        if not digitos.startswith("55"):
+            return ""
         digitos = digitos[2:]
+        ddd_padrao = ""
+    elif digitos.startswith("55") and len(digitos) >= 12:
+        digitos = digitos[2:]
+    digitos = digitos.lstrip("0")
+
+    # Sem DDD
+    if ddd_padrao:
+        if len(digitos) == 9 and digitos[0] == "9":
+            digitos = ddd_padrao + digitos
+        elif len(digitos) == 8 and digitos[0] in "2345":
+            digitos = ddd_padrao + digitos
+        elif len(digitos) == 8 and digitos[0] in "6789":
+            digitos = ddd_padrao + "9" + digitos  # celular antigo sem o 9
+
+    # Celular antigo com DDD mas sem o nono dígito: (11) 9876-5432
+    if len(digitos) == 10 and digitos[2] in "6789":
+        digitos = digitos[:2] + "9" + digitos[2:]
 
     if len(digitos) not in (10, 11) or int(digitos[:2]) not in DDDS:
         return ""
@@ -447,29 +490,88 @@ def _normalizar_telefone_br(parte: str) -> str:
     return digitos if movel or fixo else ""
 
 
-def processar_telefones(bruto: str) -> tuple[str, str]:
-    """Retorna telefones formatados e o primeiro celular válido."""
-    itens = []
-    whatsapp = ""
+def _formatar(digitos: str) -> str:
+    if len(digitos) == 11:
+        return f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
+    return f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
 
-    for parte in re.split(r"[;,/|]", bruto or ""):
-        original = parte.strip()
-        if not original:
-            continue
 
-        digitos = _normalizar_telefone_br(original)
-        if not digitos:
-            texto = original
-        elif len(digitos) == 11:
-            texto = f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
-            whatsapp = whatsapp or digitos
-        else:
-            texto = f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
+def processar_telefones(
+    bruto: str, ddd_padrao: str = "", explicito: str = ""
+) -> tuple[str, str]:
+    """Retorna telefones formatados e o número de WhatsApp.
 
-        if texto not in itens:
-            itens.append(texto)
+    ``explicito`` traz números cadastrados em tags de WhatsApp: valem como
+    WhatsApp mesmo se forem fixos (WhatsApp Business roda em linha fixa).
+    Fora isso, o WhatsApp é o primeiro celular válido.
+    """
+    itens, whatsapp, ddd_atual = [], "", ddd_padrao
+
+    for texto_bruto, eh_zap in ((explicito, True), (bruto, False)):
+        for parte in re.split(r"[;,/|]", texto_bruto or ""):
+            original = parte.strip()
+            if not original:
+                continue
+
+            digitos = _normalizar_telefone_br(original, ddd_atual)
+            if not digitos:
+                texto = original
+            else:
+                ddd_atual = digitos[:2]
+                texto = _formatar(digitos)
+                if eh_zap or len(digitos) == 11:
+                    whatsapp = whatsapp or digitos
+
+            if texto not in itens:
+                itens.append(texto)
 
     return " / ".join(itens), whatsapp
+
+
+def telefones_das_tags(tags: dict) -> tuple[str, str]:
+    """Junta telefones de QUALQUER tag de telefone/WhatsApp do OSM.
+
+    Retorna (telefones_gerais, telefones_declarados_como_whatsapp).
+    Também extrai números de links wa.me / api.whatsapp.com e de textos livres.
+    """
+    gerais, zap = [], []
+
+    for chave, valor in tags.items():
+        if not valor or not RE_CHAVE_TEL.search(chave) or "fax" in chave.lower():
+            continue
+        (zap if RE_CHAVE_ZAP.search(chave) else gerais).append(str(valor))
+
+    for chave in (
+        "website", "contact:website", "url", "contact:url",
+        "facebook", "contact:facebook", "instagram", "contact:instagram",
+    ):
+        for achado in RE_LINK_ZAP.findall(str(tags.get(chave, ""))):
+            zap.append(achado)
+
+    for chave in ("description", "note", "contact:description"):
+        gerais.extend(RE_FONE_TEXTO.findall(str(tags.get(chave, ""))))
+
+    return ";".join(gerais), ";".join(zap)
+
+
+def primeiro_fixo(telefones: str) -> str:
+    """Primeiro telefone fixo válido (DDD + 8 dígitos) de um texto já formatado.
+
+    O WhatsApp Business também funciona em linha fixa, então vale a tentativa.
+    """
+    achado = re.search(r"\((\d{2})\) ([2-5]\d{3})-(\d{4})", str(telefones))
+    return "".join(achado.groups()) if achado else ""
+
+
+def ddd_predominante(telefones) -> str:
+    """DDD mais comum entre os telefones já reconhecidos (usa como padrão)."""
+    contagem: dict[str, int] = {}
+    for valor in telefones:
+        for parte in re.split(r"[;,/|]", str(valor)):
+            digitos = _normalizar_telefone_br(parte)
+            if digitos:
+                contagem[digitos[:2]] = contagem.get(digitos[:2], 0) + 1
+    return max(contagem, key=contagem.get) if contagem else ""
 
 
 def url_valida(url: str) -> bool:
@@ -732,9 +834,8 @@ def coletar(localidade: str, raio_km, grupos) -> pd.DataFrame:
         )
         email = (tags.get("email") or tags.get("contact:email") or "").strip()
 
-        telefone, whatsapp = processar_telefones(
-            ";".join(tags[chave] for chave in CHAVES_TEL if tags.get(chave))
-        )
+        bruto_tel, bruto_zap = telefones_das_tags(tags)
+        telefone, whatsapp = processar_telefones(bruto_tel, explicito=bruto_zap)
 
         rede = bool(tags.get("brand:wikidata"))
         situacao = situacao_site(site, instagram, facebook)
@@ -807,6 +908,24 @@ def ler_csv(caminho: Path) -> pd.DataFrame:
         df[coluna] = pd.to_numeric(df[coluna], errors="coerce")
 
     df["rede"] = df["rede"].eq("True")
+
+    # Reprocessa o telefone salvo: recupera números que versões anteriores
+    # do parser rejeitaram (+55 011..., sem DDD etc.) sem nova coleta.
+    ddd = ddd_predominante(df["telefone"])
+    extra_zap = [
+        ";".join(
+            RE_LINK_ZAP.findall(" ".join((site, insta, face)))
+        )
+        for site, insta, face in zip(df["site"], df["instagram"], df["facebook"])
+    ]
+    reprocessado = [
+        processar_telefones(valor, ddd, extra)
+        for valor, extra in zip(df["telefone"], extra_zap)
+    ]
+    df["telefone"] = [tel for tel, _ in reprocessado]
+    df["whatsapp_num"] = [
+        zap or antigo for (_, zap), antigo in zip(reprocessado, df["whatsapp_num"])
+    ]
     df["pontuacao"] = [
         pontuar(*campos)
         for campos in zip(
@@ -818,6 +937,10 @@ def ler_csv(caminho: Path) -> pd.DataFrame:
             df["facebook"],
             df["rede"],
         )
+    ]
+    df["whatsapp_tentativa"] = [
+        zap or primeiro_fixo(tel)
+        for zap, tel in zip(df["whatsapp_num"], df["telefone"])
     ]
     return df
 
@@ -942,7 +1065,7 @@ def carregar_base(
         progresso(1.0, "Concluído")
 
     if not quadros:
-        return pd.DataFrame(columns=COLUNAS), falhas, 0
+        return pd.DataFrame(columns=COLUNAS + ["whatsapp_tentativa"]), falhas, 0
 
     base = pd.concat(quadros, ignore_index=True)
     base = base.drop_duplicates(subset="osm_id")
@@ -1067,15 +1190,85 @@ def metricas_leads(df: pd.DataFrame) -> None:
         ),
     )
     colunas[2].metric(
-        "Celular para tentar WhatsApp",
-        int((df["whatsapp_num"] != "").sum()),
-        help="Um celular encontrado não confirma que exista conta ativa no WhatsApp.",
+        "WhatsApp para tentar (celular + fixo)",
+        int((df["whatsapp_tentativa"] != "").sum()),
+        help=(
+            f"{int((df['whatsapp_num'] != '').sum())} são celulares; o restante "
+            "é telefone fixo (WhatsApp Business também roda em linha fixa). "
+            "Um número encontrado não confirma que exista conta ativa."
+        ),
     )
     colunas[3].metric(
         "Já contatados",
         int((df["status"] != "Novo").sum()),
         help="Conta leads com status diferente de Novo.",
     )
+
+
+def tipo_contato(df: pd.DataFrame) -> pd.Series:
+    """Classifica cada lead pelo melhor canal de contato disponível."""
+    tem_email = df["email"] != ""
+    tem_rede = (df["instagram"] != "") | (df["facebook"] != "")
+    tem_fixo = df["telefone"].map(tem_telefone_valido)
+    tem_zap = df["whatsapp_num"] != ""
+
+    return pd.Series(
+        [
+            "Celular (WhatsApp)" if z
+            else "Só telefone fixo" if t
+            else "Só e-mail" if e and not r
+            else "Só rede social" if r
+            else "Sem contato"
+            for z, t, e, r in zip(tem_zap, tem_fixo, tem_email, tem_rede)
+        ],
+        index=df.index,
+    )
+
+
+def mostrar_funil(base: pd.DataFrame, f: pd.DataFrame) -> None:
+    """Mostra onde os leads da base são perdidos até chegar à tabela."""
+    if base.empty:
+        return
+
+    com_contato = (
+        (base["telefone"] != "")
+        | (base["email"] != "")
+        | (base["instagram"] != "")
+        | (base["facebook"] != "")
+    )
+    etapas = pd.DataFrame(
+        {
+            "Etapa": [
+                "1. Base coletada",
+                "2. Com algum contato no OSM",
+                "3. Com telefone",
+                "4. Com celular",
+                "4b. Com celular ou fixo (WhatsApp p/ tentar)",
+                "5. Após os filtros atuais",
+                "6. Filtrados com WhatsApp p/ tentar",
+            ],
+            "Leads": [
+                len(base),
+                int(com_contato.sum()),
+                int((base["telefone"] != "").sum()),
+                int((base["whatsapp_num"] != "").sum()),
+                int((base["whatsapp_tentativa"] != "").sum()),
+                len(f),
+                int((f["whatsapp_tentativa"] != "").sum()) if not f.empty else 0,
+            ],
+        }
+    )
+    etapas["% da base"] = (etapas["Leads"] / max(len(base), 1) * 100).round(1)
+
+    st.subheader("Funil de contatos")
+    st.caption(
+        "Poucos estabelecimentos têm telefone cadastrado no OpenStreetMap; "
+        "por isso a base inteira é muito maior que o total contatável."
+    )
+    st.dataframe(etapas, hide_index=True, use_container_width=True)
+
+    por_tipo = tipo_contato(base).value_counts()
+    st.bar_chart(por_tipo.rename_axis("Tipo de contato").rename("Leads"))
 
 
 def mostrar_distribuicao(
@@ -1339,7 +1532,7 @@ def renderizar_tabela(f: pd.DataFrame, limite_linhas: int, modelo: str) -> None:
     tabela = f.head(limite_linhas).copy()
     tabela["whatsapp_url"] = [
         link_whatsapp(numero, nome, modelo)
-        for numero, nome in zip(tabela["whatsapp_num"], tabela["nome"])
+        for numero, nome in zip(tabela["whatsapp_tentativa"], tabela["nome"])
     ]
     tabela["google_url"] = [
         criar_link_google(nome, localidade)
@@ -1483,7 +1676,7 @@ def renderizar_exportacao(f: pd.DataFrame, modelo: str) -> None:
     exportar = f.drop(columns=["rede", "osm_url"], errors="ignore").assign(
         whatsapp_url=[
             link_whatsapp(numero, nome, modelo) or ""
-            for numero, nome in zip(f["whatsapp_num"], f["nome"])
+            for numero, nome in zip(f["whatsapp_tentativa"], f["nome"])
         ]
     )
     exportar = exportar.assign(fonte_dados=FONTE_DADOS)
@@ -1531,6 +1724,7 @@ def renderizar_visao_geral(
         st.metric("Leads disponíveis na base", len(base))
 
     metricas_leads(f)
+    mostrar_funil(base, f)
     st.caption(
         "A pontuação é heurística e não representa probabilidade de conversão. "
         "A ausência de site no OpenStreetMap não prova que o negócio não tenha site."
@@ -1751,7 +1945,9 @@ def main() -> None:
 
     base_bruta = st.session_state.get("base")
     if base_bruta is None:
-        base = pd.DataFrame(columns=COLUNAS + ["status", "observacao"])
+        base = pd.DataFrame(
+            columns=COLUNAS + ["whatsapp_tentativa", "status", "observacao"]
+        )
         rotulo = ""
         assinatura_atual = None
         origens = {}
