@@ -1,3 +1,20 @@
 {
-  "contato": "gabrielherrerademarchi@gmail.com"
+  "contato": "gabrielherrerademarchi@gmail.com",
+  "nome_vendedor": "Gabriel",
+  "ultima_busca": {
+    "localidades": [
+      "Sao Caetano do sul,sp"
+    ],
+    "raio_km": null,
+    "grupos": [
+      "Alimentação",
+      "Beleza e estética",
+      "Saúde",
+      "Serviços profissionais",
+      "Automotivo",
+      "Pet",
+      "Fitness e educação",
+      "Varejo"
+    ]
+  }
 }

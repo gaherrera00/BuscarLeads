@@ -1,100 +1,87 @@
 # 📍 Busca de Leads
 
-Aplicação em **Streamlit** para prospecção de estabelecimentos comerciais usando dados abertos do **OpenStreetMap**. Permite buscar negócios por região e nicho, identificar oportunidades (ex.: sem site/rede social), gerenciar status de contato e exportar os resultados.
+Aplicação em **Streamlit** para prospectar estabelecimentos com dados abertos do **OpenStreetMap**: busca por região e nicho, identifica oportunidades (sem site, só rede social), acompanha o status de contato e exporta os resultados. A **Pesquisa avançada** complementa leads promissores com os dados do Google Places.
 
-## ✨ Funcionalidades
-
-- **Busca geográfica**: por cidade/bairro (limite administrativo) ou raio em km a partir de um ponto central.
-- **Filtro por nichos**: Alimentação, Beleza, Saúde, Serviços profissionais, Automotivo, Pet, Fitness/Educação, Varejo, Mercados.
-- **Pontuação de oportunidade**: heurística baseada em presença de site, redes sociais, WhatsApp, e-mail e telefone.
-- **Deduplicação aproximada**: remove leads duplicados por nome/telefone/endereço.
-- **Cache local**: resultados salvos em CSV com TTL configurável, evitando novas consultas repetidas.
-- **Edição de status**: acompanhamento de leads (Novo, Contatado, Respondeu, Reunião marcada, Fechado, Descartado) com observações persistidas.
-- **Exportação CSV**: com proteção contra injeção de fórmulas no Excel.
-- **Mapa e gráficos**: visualização geográfica e distribuição por nicho/situação/status.
-- **Links de ação**: WhatsApp (mensagem pré-formatada), busca no Google e link direto para o registro no OSM.
-
-## 📦 Instalação
+## ▶️ Como rodar
 
 ```bash
-pip install "streamlit>=1.50" pandas requests
-```
-
-## ▶️ Execução
-
-```bash
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## ⚙️ Configuração
+Ao abrir, o app carrega sozinho o CSV mais recente (sem acessar a internet), então o **Dashboard de leads** já aparece preenchido.
 
-A aplicação precisa de um e-mail de contato para identificar as requisições ao Nominatim/Overpass (boa prática de uso da API pública do OSM).
+## 🗂️ Estrutura do código
 
-**Opção 1 — Variável de ambiente** (tem prioridade):
-```bash
-export BUSCA_LEADS_CONTATO="voce@email.com"
+```
+app.py                         # ponto de entrada (3 linhas)
+buscarleads/
+├── constantes.py              # caminhos, nichos, colunas, esquemas de CSV
+├── contato.py                 # e-mail de contato, nome do vendedor, última busca
+├── normalizacao.py            # telefone, URL, e-mail, pontuação
+├── osm.py                     # coleta Nominatim/Overpass
+├── mensagens.py               # modelos de mensagem e links de WhatsApp
+├── dados/                     # leitura/gravação dos CSVs (sem Streamlit)
+│   ├── arquivos.py            # nomes legíveis, "mais recente", validade, migração
+│   ├── leads.py               # ler/carregar base, edição direta no CSV
+│   ├── status.py              # status e observações
+│   ├── google.py              # cache do Google Places (enriquecido.csv)
+│   ├── concorrencia.py        # cache de concorrência
+│   ├── tabelas.py             # leitura com cache e gravação atômica
+│   └── avisos.py              # avisos da camada de dados para a tela
+├── servicos/                  # APIs pagas
+│   ├── google_places.py       # busca com todos os campos
+│   └── serper.py              # concorrência
+└── ui/                        # uma tela por arquivo
+    ├── app.py                 # ordem das abas e fluxo da página
+    ├── dashboard.py  leads.py  pesquisa.py  mapa.py  configuracoes.py
+    └── estado.py  sidebar.py  filtros.py  componentes.py  tema.py
+tests/                         # pytest: dados, edição, APIs (simuladas) e interface
 ```
 
-**Opção 2 — Interface**: se a variável não estiver definida, a aplicação exibe um diálogo para informar o e-mail, que é salvo em `dados_osm/config.json`.
+Para adicionar uma aba: crie `ui/minha_aba.py` com `renderizar_minha_aba(...)` e inclua em `ABAS` e no `with` correspondente em `ui/app.py`.
 
-> Sem e-mail válido configurado, bases em cache ainda podem ser carregadas, mas novas coletas ficam bloqueadas.
-
-## 🗂️ Estrutura de dados
+## 💾 Arquivos CSV
 
 ```
 dados_osm/
-├── config.json              # e-mail de contato salvo localmente
-├── status_leads.csv         # status e observações dos leads
-└── leads_<hash>.csv         # cache de resultados por busca
+├── leads__São Caetano do Sul, SP__area__2026-11-10_21h05.csv   # uma coleta
+├── leads__São Caetano do Sul, SP__raio 3 km__2026-11-10_21h05.csv
+├── status_leads.csv        # status/observação por lead
+├── enriquecido.csv         # dados do Google por lead
+├── concorrencia.csv        # concorrência por nicho+cidade
+├── config.json             # e-mail, nome, última busca
+└── _backup/                # original de cada CSV, guardado antes da 1ª correção
 ```
 
-## 🧭 Como usar
+- **Nome**: lugar + abrangência (`area` / `raio N km`) + data e hora da coleta. Duas coletas no mesmo minuto ganham `-2`, `-3`…
+- **Leitura**: para cada busca, o app usa **sempre o arquivo mais recente com o mesmo lugar, abrangência e nichos**. A data vem do nome do arquivo, não do disco.
+- **Validade do cache**: contada pela data da coleta (padrão 30 dias). Arquivos antigos sem registro de nicho/raio só servem para busca por área inteira.
+- **Correções sem nova coleta**: na aba **Leads**, edite nome, telefone, e-mail, site, Instagram, Facebook, endereço, status e observação direto na tabela e clique em **Salvar alterações**. As correções vão para o próprio CSV; a pontuação é recalculada; o original fica em `_backup/`. Se você forçar uma nova coleta depois, os campos que corrigiu são mantidos.
 
-1. Na barra lateral, informe uma ou mais localidades (separadas por `;`).
-2. Escolha a abrangência: área administrativa completa ou raio em km (aceita apenas uma localidade).
-3. Selecione os nichos de interesse.
-4. Defina a validade do cache (dias) e, se necessário, force uma nova coleta.
-5. Clique em **Buscar / carregar base**.
-6. Use os **filtros de resultados** (localidade, nicho, situação do site, status, distância etc.) para refinar a lista.
-7. Edite **Status** e **Observação** diretamente na tabela e clique em **Salvar status e observações**.
-8. Use os links de **WhatsApp**, **Google** e **OpenStreetMap** para conferir e abordar os leads.
-9. Exporte os leads filtrados em **CSV**.
+## 🔍 Pesquisa avançada
 
-## 🧮 Pontuação de oportunidade (heurística)
+Requer `GOOGLE_PLACES_API_KEY` (e opcionalmente `SERPER_API_KEY`) no `.env`.
 
-| Critério | Pontos |
-|---|---|
-| Sem site ou só rede social | +3 |
-| WhatsApp (celular) encontrado | +2 |
-| Telefone válido (sem WhatsApp) | +1 |
-| Instagram ou Facebook | +1 |
-| E-mail válido | +1 |
-| Identificado como rede (`brand:wikidata`) | −4 |
+1. Escolha leads (por padrão só *Respondeu*, *Reunião marcada* e *Fechado*; há opção para qualquer status).
+2. A tela mostra **quantas consultas pagas** serão feitas. Leads já salvos (✓) são lidos do CSV sem custo.
+3. **Puxar informações** faz uma chamada por lead, **grava na hora** e **exibe** a ficha completa.
 
-> ⚠️ A pontuação **não representa probabilidade de conversão**. A ausência de site no OpenStreetMap **não comprova** que o negócio não tenha site.
+A ficha traz: nota e avaliações, situação do negócio, telefones, horários, preço, tipos, resumos (editorial e por IA), comodidades, pagamento, estacionamento, acessibilidade, avaliações recentes, links do Maps, comparação do site no Google × OpenStreetMap, concorrência, e a **resposta completa da API** (`gmn_json`). Cada consulta guarda também a **confiança do casamento** (nome e distância) para evitar usar dados de outro estabelecimento.
 
-## 📜 Fonte dos dados e uso responsável
+**Custo** (tabela de preços do Google, confira a atual): o app pede todos os campos (`X-Goog-FieldMask: *`) → nível *Text Search Enterprise + Atmosphere*, US$ 40 por 1.000 consultas, com 1.000 gratuitas por mês. Os campos que o app já pedia antes estavam no nível *Enterprise* (US$ 35), então pedir tudo custa só US$ 5 a mais por mil.
 
-Dados fornecidos por:
+⚠️ **Termos do Google sobre guardar dados.** Os termos do Google permitem guardar o `place_id` sem prazo e coordenadas por até 30 dias; não encontrei, na fonte oficial, permissão explícita para manter nota, avaliações e horários indefinidamente. O app guarda tudo (como pedido) e **sinaliza dados com mais de 30 dias** na ficha. Avalie o seu caso de uso; se precisar de conformidade estrita, guarde só `gmn_place_id` e consulte de novo quando precisar.
 
-> © OpenStreetMap contributors — ODbL 1.0 — https://www.openstreetmap.org/copyright
+## 🧪 Testes
 
-Ao abordar estabelecimentos:
-- Identifique-se claramente.
-- Ofereça opção de não receber novos contatos.
-- Evite disparos em massa.
-- Respeite a **LGPD**.
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
 
-## 🛠️ Stack técnica
+As chamadas ao Google/Serper são simuladas nos testes (formato documentado da API); nenhum teste gasta cota.
 
-| Componente | Uso |
-|---|---|
-| **Streamlit** | Interface web |
-| **Pandas** | Manipulação e persistência de dados (CSV) |
-| **Requests** | Chamadas às APIs Nominatim e Overpass |
-| **Nominatim** | Geocodificação de localidades |
-| **Overpass API** | Consulta de estabelecimentos (com múltiplos endpoints de fallback) |
+## ⚖️ Fonte e uso responsável
 
-## 📄 Licença
-
-Defina a licença do projeto aqui (ex.: MIT). Os dados coletados seguem a licença **ODbL 1.0** do OpenStreetMap.
+Dados © OpenStreetMap contributors (ODbL 1.0). A ausência de dado no OSM não prova que o site não exista. Ao abordar, identifique-se, ofereça opção de não receber contato, evite disparos em massa e respeite a LGPD.

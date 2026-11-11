@@ -1,0 +1,127 @@
+# Implementação: Integração com WhatsApp para envio de mensagens
+
+## Contexto
+
+Tenho um projeto pessoal desenvolvido em Python com Streamlit que realiza prospecção de empresas.
+
+O sistema já possui funcionalidades de:
+- Busca de empresas e leads.
+- Coleta de informações como nome, telefone, endereço e site.
+- Identificação de números de celular.
+- Exibição dos leads na interface.
+- Filtros e exportação de dados.
+
+Quero adicionar uma funcionalidade de envio de mensagens pelo WhatsApp, utilizando a API oficial da Meta (WhatsApp Cloud API).
+
+## Objetivo
+
+Adicionar uma funcionalidade simples de prospecção pelo WhatsApp, mantendo a arquitetura e a interface atual do projeto.
+
+## Funcionalidades necessárias
+
+### 1. Filtragem dos contatos
+
+- Utilizar os números de celular já identificados pelo scraper.
+- Validar o formato dos números brasileiros.
+- Exibir somente contatos elegíveis para envio.
+- Não considerar um número válido como confirmação de que ele possui WhatsApp ou autorização para receber mensagens.
+
+### 2. Personalização das mensagens
+
+Criar um modelo de mensagem personalizável, permitindo utilizar variáveis como:
+
+- `{nome}`: nome da empresa.
+- `{nicho}`: segmento da empresa.
+- `{cidade}`: cidade da empresa.
+
+Exemplo:
+
+"Olá! Encontrei a {nome} e gostaria de apresentar alguns serviços de desenvolvimento de sites e automação que podem ajudar seu negócio. Posso compartilhar alguns exemplos?"
+
+A mensagem deve ser editável pela interface Streamlit.
+
+### 3. Integração com WhatsApp Cloud API
+
+Implementar a integração com a API oficial da Meta.
+
+Requisitos:
+- Utilizar requisições HTTP.
+- Autenticar utilizando Access Token.
+- Utilizar Phone Number ID.
+- Permitir configuração por variáveis de ambiente ou `st.secrets`.
+- Não deixar tokens ou credenciais expostos no código.
+- Respeitar os requisitos da Meta para mensagens iniciadas pela empresa, incluindo templates aprovados e autorização prévia do contato.
+
+### 4. Envio das mensagens
+
+Criar uma seção chamada **WhatsApp** na interface.
+
+Ela deve permitir:
+- Visualizar os leads elegíveis.
+- Selecionar contatos individualmente.
+- Visualizar a mensagem antes do envio.
+- Enviar a mensagem para os contatos selecionados.
+- Exibir o resultado de cada tentativa.
+
+Não implementar disparos indiscriminados para números encontrados publicamente.
+
+### 5. Registro de status
+
+Registrar o resultado do envio para cada lead.
+
+Status mínimos:
+- `Pendente`
+- `Enviado`
+- `Erro`
+
+Regras:
+- Marcar como `Enviado` somente quando a API confirmar a aceitação da solicitação de envio.
+- Em caso de erro, registrar a mensagem retornada pela API.
+- Evitar enviar novamente para contatos já marcados como enviados, salvo se o usuário solicitar explicitamente uma nova tentativa.
+
+## Restrições técnicas
+
+- Preservar todas as funcionalidades existentes.
+- Não reescrever o scraper.
+- Não alterar desnecessariamente a estrutura do projeto.
+- Não adicionar dependências complexas sem necessidade.
+- Manter o Streamlit como interface principal.
+- Utilizar funções separadas para facilitar manutenção.
+- Tratar erros de conexão, autenticação e respostas da API.
+- Manter compatibilidade com os dados e arquivos atualmente utilizados pelo projeto.
+
+## Organização sugerida
+
+Se fizer sentido para a estrutura atual, separar a integração em um módulo próprio:
+
+`whatsapp_api.py`
+- Configuração da API.
+- Autenticação.
+- Envio de mensagens.
+- Tratamento de respostas e erros.
+
+O arquivo principal `app.py` deve ficar responsável pela interface e pela integração com os dados existentes.
+
+## Antes de implementar
+
+1. Analise todo o código existente.
+2. Identifique como os leads são armazenados e atualizados.
+3. Identifique como os números de telefone são tratados.
+4. Verifique como adicionar a funcionalidade sem quebrar os recursos atuais.
+5. Apresente brevemente o plano de implementação.
+
+Depois, implemente a funcionalidade completa.
+
+## Critério de conclusão
+
+A implementação estará concluída quando for possível:
+
+1. Buscar empresas normalmente.
+2. Visualizar os números de celular identificados.
+3. Selecionar contatos autorizados.
+4. Personalizar a mensagem.
+5. Enviar pelo WhatsApp Cloud API.
+6. Visualizar o resultado do envio.
+7. Consultar o status de cada lead posteriormente.
+
+**Prioridade:** simplicidade, preservação das funcionalidades existentes e funcionamento confiável.
