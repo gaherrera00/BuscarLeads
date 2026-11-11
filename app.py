@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -238,11 +239,22 @@ COLUNAS = [
     "coletado_em",
 ]
 
-MODELO_MSG = (
-    "Oi! Reparei que a {nome} não tem site no Google, isso pode estar te "
-    "custando cliente todo dia. Crio uma página profissional e configuro seu "
-    "perfil em poucos dias, com valor acessível. Posso te mandar 2 exemplos "
-    "que já fiz?"
+#CONFIGURACAO DE MENSAGENS
+#HORARIOS
+tempo = datetime.now().hour
+hora = datetime.now().hour
+
+if 5 <= hora < 12:
+    MODELO_MSG = (
+    "Bom Dia, tudo bem? Gostaria de saber se poderia falar com o responsável pelo {nome}, por gentileza."
+)
+elif 12 <= hora < 18:
+        MODELO_MSG = (
+    "Boa Tarde, tudo bem? Gostaria de saber se poderia falar com o responsável pelo {nome}, por gentileza."
+)
+else:
+        MODELO_MSG = (
+    "Boa Noite, tudo bem? Gostaria de saber se poderia falar com o responsável pelo {nome}, por gentileza."
 )
 
 CSS_TEMA = """
