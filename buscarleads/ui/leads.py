@@ -9,9 +9,10 @@ import streamlit as st
 
 from buscarleads.constantes import COLUNAS_EDITAVEIS, FONTE_DADOS, STATUS_LEAD
 from buscarleads.contato import carregar_nome_vendedor
-from buscarleads.dados.arquivos import nome_exportacao
+from buscarleads.dados.arquivos import nome_exportacao, novo_caminho_exportacao
 from buscarleads.dados.leads import aplicar_edicoes
 from buscarleads.dados.status import salvar_status
+from buscarleads.dados.tabelas import gravar_csv
 from buscarleads.mensagens import (
     coluna_whatsapp,
     criar_link_google,
@@ -22,10 +23,25 @@ from buscarleads.normalizacao import url_valida
 from buscarleads.ui.estado import recarregar_base_ativa
 
 ORDEM_COLUNAS = [
-    "pontuacao", "nome", "nicho", "localidade", "status_site", "telefone",
-    "whatsapp_url", "instagram", "facebook", "email", "site", "google_url",
-    "osm_url", "endereco", "distancia_km", "gmn_nota", "gmn_avaliacoes",
-    "status", "observacao",
+    "pontuacao",
+    "nome",
+    "nicho",
+    "localidade",
+    "status_site",
+    "telefone",
+    "whatsapp_url",
+    "instagram",
+    "facebook",
+    "email",
+    "site",
+    "google_url",
+    "osm_url",
+    "endereco",
+    "distancia_km",
+    "gmn_nota",
+    "gmn_avaliacoes",
+    "status",
+    "observacao",
 ]
 EDITAVEIS_NA_TABELA = COLUNAS_EDITAVEIS + ["status", "observacao"]
 
@@ -40,7 +56,8 @@ def preparar_tabela(filtrado: pd.DataFrame, limite: int, modelo: str) -> pd.Data
     seu_nome = carregar_nome_vendedor() or "[seu nome]"
     tabela["whatsapp_url"] = coluna_whatsapp(tabela, modelo, seu_nome)
     tabela["google_url"] = [
-        criar_link_google(nome, local) for nome, local in zip(tabela["nome"], tabela["localidade"])
+        criar_link_google(nome, local)
+        for nome, local in zip(tabela["nome"], tabela["localidade"])
     ]
     tabela["site"] = [site if url_valida(site) else None for site in tabela["site"]]
     for coluna in ("instagram", "facebook", "osm_url", "email"):
@@ -51,7 +68,11 @@ def preparar_tabela(filtrado: pd.DataFrame, limite: int, modelo: str) -> pd.Data
 
 
 def _texto(valor) -> str:
-    return "" if valor is None or (isinstance(valor, float) and pd.isna(valor)) else str(valor).strip()
+    return (
+        ""
+        if valor is None or (isinstance(valor, float) and pd.isna(valor))
+        else str(valor).strip()
+    )
 
 
 def diferencas_dados(editado: pd.DataFrame, original: pd.DataFrame) -> dict[str, dict]:
@@ -107,13 +128,16 @@ def _configuracao_colunas() -> dict:
     texto = st.column_config.TextColumn
     return {
         "pontuacao": st.column_config.NumberColumn(
-            "Score", width="small",
+            "Score",
+            width="small",
             help="Pontuação de oportunidade calculada pelas informações disponíveis; não é probabilidade de conversão.",
         ),
         "nome": texto("Nome", width="medium"),
         "nicho": texto("Nicho", width="medium"),
         "localidade": texto("Localidade", width="medium"),
-        "status_site": texto("Situação do site", width="medium", help="Reflete os registros do OSM."),
+        "status_site": texto(
+            "Situação do site", width="medium", help="Reflete os registros do OSM."
+        ),
         "telefone": texto("Telefone", width="medium"),
         "whatsapp_url": link("WhatsApp (tentar)", display_text="Abrir", width="small"),
         "instagram": link("Instagram", width="small"),
@@ -124,22 +148,32 @@ def _configuracao_colunas() -> dict:
         "osm_url": link("OpenStreetMap", display_text="OSM", width="small"),
         "endereco": texto("Endereço", width="large"),
         "distancia_km": st.column_config.NumberColumn(
-            "Dist. ao centro (km)", format="%.2f", width="small",
+            "Dist. ao centro (km)",
+            format="%.2f",
+            width="small",
             help="Distância em linha reta até o ponto central da consulta.",
         ),
         "gmn_nota": st.column_config.NumberColumn(
-            "Nota Google", format="%.1f", width="small",
+            "Nota Google",
+            format="%.1f",
+            width="small",
             help="Vem da Pesquisa avançada. Vazio = ainda não pesquisado.",
         ),
-        "gmn_avaliacoes": st.column_config.NumberColumn("Aval. Google", format="%d", width="small"),
-        "status": st.column_config.SelectboxColumn("Status", options=STATUS_LEAD, required=True, width="medium"),
+        "gmn_avaliacoes": st.column_config.NumberColumn(
+            "Aval. Google", format="%d", width="small"
+        ),
+        "status": st.column_config.SelectboxColumn(
+            "Status", options=STATUS_LEAD, required=True, width="medium"
+        ),
         "observacao": texto("Observação", width="large"),
     }
 
 
 def renderizar_tabela(filtrado: pd.DataFrame, limite: int, modelo: str) -> None:
     tabela = preparar_tabela(filtrado, limite, modelo)
-    chave = hashlib.sha1("|".join(tabela["osm_id"].astype(str)).encode("utf-8")).hexdigest()[:12]
+    chave = hashlib.sha1(
+        "|".join(tabela["osm_id"].astype(str)).encode("utf-8")
+    ).hexdigest()[:12]
 
     editado = st.data_editor(
         tabela,
@@ -174,7 +208,9 @@ def renderizar_tabela(filtrado: pd.DataFrame, limite: int, modelo: str) -> None:
 
 def renderizar_exportacao(filtrado: pd.DataFrame, modelo: str) -> None:
     seu_nome = carregar_nome_vendedor() or "[seu nome]"
-    mensagens = [texto_abordagem(linha, modelo, seu_nome) for _, linha in filtrado.iterrows()]
+    mensagens = [
+        texto_abordagem(linha, modelo, seu_nome) for _, linha in filtrado.iterrows()
+    ]
     links = coluna_whatsapp(filtrado, modelo, seu_nome)
 
     exportar = filtrado.drop(
@@ -184,12 +220,27 @@ def renderizar_exportacao(filtrado: pd.DataFrame, modelo: str) -> None:
         whatsapp_url=links.fillna("").astype(str).tolist(),
         fonte_dados=FONTE_DADOS,
     )
-    csv = neutralizar_formulas(exportar).to_csv(index=False).encode("utf-8-sig")
+    exportar = neutralizar_formulas(exportar)
     lugares = sorted({str(v).strip() for v in filtrado["localidade"] if str(v).strip()})
 
+    if st.button(
+        "Salvar CSV na pasta dados_osm",
+        type="primary",
+        key="salvar_exportacao",
+        width="stretch",
+        help="Grava todos os leads filtrados direto na pasta de dados, sem passar pelo navegador.",
+    ):
+        try:
+            destino = novo_caminho_exportacao(lugares)
+            gravar_csv(exportar, destino)
+        except OSError as erro:
+            st.error(f"Não consegui salvar o CSV: {erro}")
+        else:
+            st.success(f"{len(exportar)} lead(s) salvos em `{destino}`")
+
     st.download_button(
-        "Baixar todos os leads filtrados (CSV)",
-        data=csv,
+        "Ou baixar pelo navegador (CSV)",
+        data=exportar.to_csv(index=False).encode("utf-8-sig"),
         file_name=nome_exportacao(lugares),
         mime="text/csv",
         width="stretch",

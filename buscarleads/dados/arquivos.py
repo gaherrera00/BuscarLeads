@@ -73,7 +73,9 @@ def _caminho_livre(caminho: Path) -> Path:
     return caminho.with_name(f"{caminho.stem}-{datetime.now():%H%M%S}{caminho.suffix}")
 
 
-def novo_caminho_cache(localidade: str, raio_km, quando: datetime | None = None) -> Path:
+def novo_caminho_cache(
+    localidade: str, raio_km, quando: datetime | None = None
+) -> Path:
     nome = (
         f"leads__{nome_legivel(localidade)}__{escopo_legivel(raio_km)}"
         f"__{_stamp(quando)}.csv"
@@ -82,7 +84,7 @@ def novo_caminho_cache(localidade: str, raio_km, quando: datetime | None = None)
 
 
 def nome_exportacao(localidades) -> str:
-    """Nome do CSV baixado pelo botão: lugar(es) + data da exportação."""
+    """Nome do CSV exportado: lugar(es) + ``exportado`` + data. Nunca é lido como cache."""
     lugares = [nome_legivel(lugar) for lugar in localidades if str(lugar).strip()]
     if not lugares:
         rotulo = "leads"
@@ -92,7 +94,12 @@ def nome_exportacao(localidades) -> str:
         rotulo = " + ".join(lugares[:3])
         if len(lugares) > 3:
             rotulo += f" +{len(lugares) - 3}"
-    return f"leads__{rotulo[:120]}__{_stamp()}.csv"
+    return f"leads__{rotulo[:120]}__exportado__{_stamp()}.csv"
+
+
+def novo_caminho_exportacao(localidades) -> Path:
+    """Destino da exportação dentro de ``dados_osm``; duas no mesmo minuto não se sobrescrevem."""
+    return _caminho_livre(constantes.DATA_DIR / nome_exportacao(localidades))
 
 
 # ---------------------------------------------------------------------- meta
@@ -211,7 +218,10 @@ def cache_mais_recente(localidade: str, raio_km, grupos) -> tuple[Path | None, s
             continue
         meta = ler_meta(caminho)
         local_arquivo = (meta or {}).get("localidade") or partes["loc"]
-        if chave_localidade(str(local_arquivo)) != chave and chave_localidade(partes["loc"]) != chave:
+        if (
+            chave_localidade(str(local_arquivo)) != chave
+            and chave_localidade(partes["loc"]) != chave
+        ):
             continue
 
         if (
@@ -285,12 +295,17 @@ def _localidade_do_csv(caminho: Path) -> tuple[str, str]:
     if _PADRAO_EXPORT_ANTIGO.match(caminho.name):
         # Exportação: o que importa é quando foi baixada, e isso está no nome.
         bruto = caminho.stem.removeprefix("leads_")
-        return localidade, f"{bruto[:4]}-{bruto[4:6]}-{bruto[6:8]}_{bruto[9:11]}h{bruto[11:13]}"
+        return (
+            localidade,
+            f"{bruto[:4]}-{bruto[4:6]}-{bruto[6:8]}_{bruto[9:11]}h{bruto[11:13]}",
+        )
     if "coletado_em" in df.columns:
         for valor in df["coletado_em"]:
             achado = re.match(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})", str(valor))
             if achado:
-                data = max(data, f"{achado.group(1)}_{achado.group(2)}h{achado.group(3)}")
+                data = max(
+                    data, f"{achado.group(1)}_{achado.group(2)}h{achado.group(3)}"
+                )
     if not data:
         data = datetime.fromtimestamp(caminho.stat().st_mtime).strftime(_FORMATO_DATA)
     return localidade, data
@@ -310,7 +325,8 @@ def migrar_nomes_legados() -> list[Path]:
         localidade, data = _localidade_do_csv(caminho)
         escopo = "exportado" if exportado else "legado"
         destino = _caminho_livre(
-            constantes.DATA_DIR / f"leads__{nome_legivel(localidade)}__{escopo}__{data}.csv"
+            constantes.DATA_DIR
+            / f"leads__{nome_legivel(localidade)}__{escopo}__{data}.csv"
         )
         os.replace(caminho, destino)
         if not _meta_path(destino).exists():

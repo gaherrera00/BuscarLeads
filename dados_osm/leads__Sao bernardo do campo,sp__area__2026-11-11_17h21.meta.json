@@ -1,0 +1,16 @@
+{
+  "localidade": "Sao bernardo do campo,sp",
+  "raio_km": null,
+  "grupos": [
+    "Alimentação",
+    "Beleza e estética",
+    "Saúde",
+    "Serviços profissionais",
+    "Automotivo",
+    "Pet",
+    "Fitness e educação",
+    "Varejo"
+  ],
+  "tipo": "coleta",
+  "criado_em": "2026-11-11 17:21:27"
+}
