@@ -22,7 +22,6 @@ import pandas as pd
 import requests
 import streamlit as st
 
-
 # ───────────────────────── configuração e constantes ─────────────────────────
 
 
@@ -239,23 +238,24 @@ COLUNAS = [
     "coletado_em",
 ]
 
-#CONFIGURACAO DE MENSAGENS
-#HORARIOS
-tempo = datetime.now().hour
-hora = datetime.now().hour
 
-if 5 <= hora < 12:
-    MODELO_MSG = (
-    "Bom Dia, tudo bem? Gostaria de saber se poderia falar com o responsável pelo {nome}, por gentileza."
-)
-elif 12 <= hora < 18:
-        MODELO_MSG = (
-    "Boa Tarde, tudo bem? Gostaria de saber se poderia falar com o responsável pelo {nome}, por gentileza."
-)
-else:
-        MODELO_MSG = (
-    "Boa Noite, tudo bem? Gostaria de saber se poderia falar com o responsável pelo {nome}, por gentileza."
-)
+# CONFIGURACAO DE MENSAGENS
+# HORARIOS
+def obter_modelo_mensagem():
+    hora = datetime.now().hour
+
+    if 5 <= hora < 12:
+        saudacao = "Bom dia"
+    elif 12 <= hora < 18:
+        saudacao = "Boa tarde"
+    else:
+        saudacao = "Boa noite"
+
+    return (
+        f"{saudacao}, tudo bem? Gostaria de saber se poderia "
+        "falar com o responsável pelo {nome}, por gentileza."
+    )
+
 
 CSS_TEMA = """
 <style>
@@ -554,8 +554,14 @@ def telefones_das_tags(tags: dict) -> tuple[str, str]:
         (zap if RE_CHAVE_ZAP.search(chave) else gerais).append(str(valor))
 
     for chave in (
-        "website", "contact:website", "url", "contact:url",
-        "facebook", "contact:facebook", "instagram", "contact:instagram",
+        "website",
+        "contact:website",
+        "url",
+        "contact:url",
+        "facebook",
+        "contact:facebook",
+        "instagram",
+        "contact:instagram",
     ):
         for achado in RE_LINK_ZAP.findall(str(tags.get(chave, ""))):
             zap.append(achado)
@@ -899,8 +905,7 @@ def coletar(localidade: str, raio_km, grupos) -> pd.DataFrame:
 
 def caminho_cache(localidade: str, raio_km, grupos) -> Path:
     chave = (
-        f"{localidade.strip().casefold()}|{raio_km}|"
-        f"{','.join(sorted(grupos))}|v2"
+        f"{localidade.strip().casefold()}|{raio_km}|" f"{','.join(sorted(grupos))}|v2"
     )
     nome = hashlib.sha256(chave.encode()).hexdigest()[:12]
     return DATA_DIR / f"leads_{nome}.csv"
@@ -925,9 +930,7 @@ def ler_csv(caminho: Path) -> pd.DataFrame:
     # do parser rejeitaram (+55 011..., sem DDD etc.) sem nova coleta.
     ddd = ddd_predominante(df["telefone"])
     extra_zap = [
-        ";".join(
-            RE_LINK_ZAP.findall(" ".join((site, insta, face)))
-        )
+        ";".join(RE_LINK_ZAP.findall(" ".join((site, insta, face))))
         for site, insta, face in zip(df["site"], df["instagram"], df["facebook"])
     ]
     reprocessado = [
@@ -1226,11 +1229,19 @@ def tipo_contato(df: pd.DataFrame) -> pd.Series:
 
     return pd.Series(
         [
-            "Celular (WhatsApp)" if z
-            else "Só telefone fixo" if t
-            else "Só e-mail" if e and not r
-            else "Só rede social" if r
-            else "Sem contato"
+            (
+                "Celular (WhatsApp)"
+                if z
+                else (
+                    "Só telefone fixo"
+                    if t
+                    else (
+                        "Só e-mail"
+                        if e and not r
+                        else "Só rede social" if r else "Sem contato"
+                    )
+                )
+            )
             for z, t, e, r in zip(tem_zap, tem_fixo, tem_email, tem_rede)
         ],
         index=df.index,
@@ -1587,9 +1598,7 @@ def renderizar_tabela(f: pd.DataFrame, limite_linhas: int, modelo: str) -> None:
         hide_index=True,
         width="stretch",
         key=f"editor_leads_{chave_editor}",
-        disabled=[
-            coluna for coluna in ordem if coluna not in ("status", "observacao")
-        ],
+        disabled=[coluna for coluna in ordem if coluna not in ("status", "observacao")],
         column_config={
             "pontuacao": st.column_config.NumberColumn(
                 "Score",
@@ -1861,7 +1870,7 @@ def renderizar_configuracoes() -> None:
     st.markdown("#### Mensagem de WhatsApp")
     st.text_area(
         "Modelo da mensagem — use `{nome}` para inserir o nome do estabelecimento",
-        value=MODELO_MSG,
+        value=obter_modelo_mensagem(),
         height=150,
         key="modelo_whatsapp",
         help=(
@@ -1990,7 +1999,7 @@ def main() -> None:
         else "sem-base"
     )
     f, filtros = aplicar_filtros(base, chave_base)
-    modelo = st.session_state.get("modelo_whatsapp", MODELO_MSG)
+    modelo = st.session_state.get("modelo_whatsapp", obter_modelo_mensagem(),)
 
     tab_visao, tab_leads, tab_analises, tab_config = st.tabs(
         ["Visão geral", "Leads", "Mapa e análises", "Configurações"]
